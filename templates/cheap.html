@@ -1,0 +1,17 @@
+{% extends "index.html" %}
+{% block content %}
+<ol class="breadcrumb">
+    <li>便宜股筛选</li>
+</ol>
+<div class="row">
+    <div class="col-md-6">
+        <form action="">
+            <div class="form-group">
+                <label for="stockCode">股票代码</label>
+                <input type="number" class="form-control" id="stockCode" placeholder="股票代码">
+            </div>
+            <button type="submit" class="btn btn-primary">筛选</button>
+        </form>
+    </div>
+</div>
+{% endblock %}
