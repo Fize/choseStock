@@ -23,6 +23,35 @@ const (
 	IndustryURL    = "https://open.lixinger.com/api/a/stock/fs/industry"
 )
 
+var (
+	bi2017 float64
+	bi2016 float64
+	bi2015 float64
+	bi2014 float64
+
+	ar2017 float64
+	ar2016 float64
+	ar2015 float64
+	ar2014 float64
+
+	s2017 float64
+	s2016 float64
+	s2015 float64
+	s2014 float64
+
+	bigrowth1 float64
+	bigrowth2 float64
+	bigrowth3 float64
+
+	argrowth1 float64
+	argrowth2 float64
+	argrowth3 float64
+
+	sgrowth1 float64
+	sgrowth2 float64
+	sgrowth3 float64
+)
+
 type Lixinger struct {
 	StockCodes []string `json:"stockCodes"`
 	Date       string   `json:"date,omitempty"`
@@ -35,7 +64,16 @@ type Lixinger struct {
 // 基本面信息，需要具体的日期
 func (l *Lixinger) Fundamental(code string) {
 	l.StockCodes = []string{code}
-	l.Date = time.Now().Format("2006-01-02")
+	date := time.Now().Format("2006-01-02")
+	str := strings.Split(date, "-")
+	day, _ := strconv.Atoi(str[2])
+	nd := day - 1
+	if nd < 10 {
+		l.Date = fmt.Sprintf("%s-%s-0%s", str[0], str[1], strconv.Itoa(day-1))
+	} else {
+		l.Date = fmt.Sprintf("%s-%s-%s", str[0], str[1], strconv.Itoa(nd))
+	}
+	// l.Date = time.Now().Format("2006-01-02")
 	l.Metrics = []string{
 		"pb", "pb_pos10", "pb_pos_all",
 		"pe_ttm", "pe_ttm_pos10", "pe_ttm_pos_all",
@@ -96,7 +134,10 @@ func (l *Lixinger) Industry(code, startDate string) {
 	}
 	validate := Analyze{IndData: d}
 	validate.Remove()
+	validate.Compute()
 	validate.Three()
+	validate.One()
+	validate.Two()
 }
 
 func (l *Lixinger) Format() *bytes.Buffer {
@@ -134,14 +175,85 @@ func (a *Analyze) High() {
 			fmt.Println(msg)
 			os.Exit(0)
 		}
+		msg := fmt.Sprintf(`当前PE: %f，最近10年PE分位点：%f
+当前PB: %f, 最近10年PB分位点: %f`, fd.Pe_ttm, fd.Pe_ttm_pos10, fd.Pb, fd.Pb_pos10)
+		fmt.Println(msg)
 	}
 }
 
-func (a *Analyze) One() {
+func (a *Analyze) Compute() {
+	for _, fd := range a.IndData.Data {
+		d := strings.Split(fd.Date, "-")
+		if d[1] == "12" {
+			if d[0] == "2017" {
+				bi2017 = fd.Q.ProfitStatement.Bi.T
+				ar2017 = fd.Q.BalanceSheet.Ar.T
+				s2017 = fd.Q.BalanceSheet.S.T
+			} else if d[0] == "2016" {
+				bi2016 = fd.Q.ProfitStatement.Bi.T
+				ar2016 = fd.Q.BalanceSheet.Ar.T
+				s2016 = fd.Q.BalanceSheet.S.T
+			} else if d[0] == "2015" {
+				bi2015 = fd.Q.ProfitStatement.Bi.T
+				ar2015 = fd.Q.BalanceSheet.Ar.T
+				s2015 = fd.Q.BalanceSheet.S.T
+			} else if d[0] == "2014" {
+				bi2014 = fd.Q.ProfitStatement.Bi.T
+				ar2014 = fd.Q.BalanceSheet.Ar.T
+				s2014 = fd.Q.BalanceSheet.S.T
+			}
+		}
+		bigrowth1 = bi2017 - bi2016
+		bigrowth2 = bi2016 - bi2015
+		bigrowth3 = bi2015 - bi2014
 
+		argrowth1 = ar2017 - ar2016
+		argrowth2 = ar2016 - ar2015
+		argrowth3 = ar2015 - ar2014
+
+		sgrowth1 = s2017 - s2016
+		sgrowth2 = s2016 - s2015
+		sgrowth3 = s2015 - s2014
+	}
 }
 
-// 流动比率 < 1 应该予以剔除
+// 连续两年应收账款增长 > 营业收入增长，剔除
+func (a *Analyze) One() {
+	if Smaller(bigrowth3, argrowth3) {
+		if Smaller(bigrowth2, argrowth2) {
+			msg := fmt.Sprintf("15年、16年连续两年不符合小熊定理一，不合格")
+			fmt.Println(msg)
+			os.Exit(0)
+		}
+	} else if Smaller(bigrowth2, argrowth2) {
+		if Smaller(bigrowth1, argrowth1) {
+			msg := fmt.Sprintf("17年、16年连续两年不符合小熊定理一，不合格")
+			fmt.Println(msg)
+			os.Exit(0)
+		}
+	}
+	fmt.Println("小熊定理一检测通过")
+}
+
+// 连续两年存货增长 > 营业收入增长，剔除
+func (a *Analyze) Two() {
+	if Smaller(bigrowth3, sgrowth3) {
+		if Smaller(bigrowth2, sgrowth2) {
+			msg := fmt.Sprintf("15年、16年连续两年不符合小熊定理二，不合格")
+			fmt.Println(msg)
+			os.Exit(0)
+		}
+	} else if Smaller(bigrowth2, sgrowth2) {
+		if Smaller(bigrowth1, sgrowth1) {
+			msg := fmt.Sprintf("17年、16年连续两年不符合小熊定理二，不合格")
+			fmt.Println(msg)
+			os.Exit(0)
+		}
+	}
+	fmt.Println("小熊定理二检测通过")
+}
+
+// 流动比率 < 1 应该予以剔除， 连续4年的
 func (a *Analyze) Three() {
 	for _, fd := range a.IndData.Data {
 		if strings.Split(fd.Date, "-")[1] == "12" {
@@ -153,7 +265,7 @@ func (a *Analyze) Three() {
 			}
 		}
 	}
-	os.Exit(0)
+	fmt.Println("小熊定理三检测通过")
 }
 
 func Smaller(a, b float64) bool {
@@ -183,9 +295,9 @@ func main() {
 		Token:   *token,
 		Metrics: []string{"pb", "pb_pos10", "pb_pos_all"},
 	}
-	fmt.Println(startDate)
+	fmt.Printf("开始对该个股 %s 进行白马组合分析\n%c[1;40;31m分析不包含基本面分析，请自行剔除基本面转坏的个股，不支持银行股分析%c[0m\n", *stockCode, 0x1B, 0x1B)
 	data.Fundamental(*stockCode)
-	// data.Industry(*stockCode, startDate)
+	data.Industry(*stockCode, startDate)
 }
 
 type Total struct {
