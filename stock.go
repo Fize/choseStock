@@ -157,6 +157,11 @@ type Analyze struct {
 
 // 不对银行股做分析
 func (a *Analyze) Remove() {
+	defer func() {
+		if err := recover(); err != nil {
+			fmt.Printf("忽略错误: %v\n", err)
+		}
+	}()
 	if a.IndData.Data[0].Industry.CnName == "银行" {
 		fmt.Println("不支持银行股的筛选验证")
 		os.Exit(0)
@@ -221,36 +226,36 @@ func (a *Analyze) Compute() {
 func (a *Analyze) One() {
 	if Smaller(bigrowth3, argrowth3) {
 		if Smaller(bigrowth2, argrowth2) {
-			msg := fmt.Sprintf("15年、16年连续两年不符合小熊定理一，不合格")
+			msg := fmt.Sprintf("15年、16年连续两年不符合选股指标一，不合格")
 			fmt.Println(msg)
 			os.Exit(0)
 		}
 	} else if Smaller(bigrowth2, argrowth2) {
 		if Smaller(bigrowth1, argrowth1) {
-			msg := fmt.Sprintf("17年、16年连续两年不符合小熊定理一，不合格")
+			msg := fmt.Sprintf("17年、16年连续两年不符合选股指标一，不合格")
 			fmt.Println(msg)
 			os.Exit(0)
 		}
 	}
-	fmt.Println("小熊定理一检测通过")
+	fmt.Println("选股指标一检测通过")
 }
 
 // 连续两年存货增长 > 营业收入增长，剔除
 func (a *Analyze) Two() {
 	if Smaller(bigrowth3, sgrowth3) {
 		if Smaller(bigrowth2, sgrowth2) {
-			msg := fmt.Sprintf("15年、16年连续两年不符合小熊定理二，不合格")
+			msg := fmt.Sprintf("15年、16年连续两年不符合选股指标二，不合格")
 			fmt.Println(msg)
 			os.Exit(0)
 		}
 	} else if Smaller(bigrowth2, sgrowth2) {
 		if Smaller(bigrowth1, sgrowth1) {
-			msg := fmt.Sprintf("17年、16年连续两年不符合小熊定理二，不合格")
+			msg := fmt.Sprintf("17年、16年连续两年不符合选股指标二，不合格")
 			fmt.Println(msg)
 			os.Exit(0)
 		}
 	}
-	fmt.Println("小熊定理二检测通过")
+	fmt.Println("选股指标二检测通过")
 }
 
 // 流动比率 < 1 应该予以剔除， 连续4年的
@@ -265,7 +270,7 @@ func (a *Analyze) Three() {
 			}
 		}
 	}
-	fmt.Println("小熊定理三检测通过")
+	fmt.Println("选股指标三检测通过")
 }
 
 func Smaller(a, b float64) bool {
