@@ -1,3 +1,7 @@
+# Frontend stuff
+frontend/node_modules/
+frontend/dist/
+
 # Created by .ignore support plugin (hsz.mobi)
 ### Python template
 # Byte-compiled / optimized / DLL files
@@ -82,7 +86,7 @@ celerybeat-schedule
 
 # Environments
 .env
-.venv
+.venv/
 env/
 venv/
 ENV/
@@ -101,3 +105,9 @@ ENV/
 .mypy_cache/
 .vscode/
 .idea/
+.codebuddy
+
+# Application runtime data directory
+app_data/
+config.yaml
+pyrightconfig.json
