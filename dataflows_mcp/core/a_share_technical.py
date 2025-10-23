@@ -86,7 +86,7 @@ class AShareTechnical:
         self, 
         code: str, 
         indicator: str, 
-        lookback_days: int = 60
+        lookback_days: int = 120
     ) -> dict[str, Any]:
         """
         计算单个技术指标
@@ -121,7 +121,7 @@ class AShareTechnical:
                 raise TechnicalAnalysisError(error_msg, indicator=indicator)
 
             formatted_code = format_stock_code(code)
-            logger.info(f"计算 {formatted_code} 的 {indicator} 指标")
+            logger.info(f"计算 {formatted_code} 的 {indicator} 指标, 回溯天数: {lookback_days}")
     
             # 获取K线数据
             kline_result = self.client.get_stock_kline(
@@ -139,15 +139,61 @@ class AShareTechnical:
                 error_msg = '无K线数据'
                 logger.error(error_msg)
                 raise TechnicalAnalysisError(error_msg, indicator=indicator)
+            
+            data_count = len(kline_data)
+            logger.info(f"获取到 {data_count} 条K线数据")
+            
+            # 检查数据量是否充足
+            min_required = 30  # 大多数指标至少需要30天数据
+            if data_count < min_required:
+                logger.warning(f"K线数据量较少({data_count}条)，可能不足以计算某些指标(建议至少{min_required}条)")
 
             # 转换为DataFrame并计算指标
             df = self._prepare_dataframe(kline_data)
+            logger.debug(f"DataFrame形状: {df.shape}, 列: {list(df.columns)}")
             wrapped_df = wrap(df)
             
             # 计算指标
-            if hasattr(wrapped_df, indicator) or indicator in wrapped_df.columns:
-                # 触发指标计算
+            # 注意: stockstats的指标在访问前不存在，访问时才会触发计算
+            try:
+                # 直接尝试访问指标，触发计算
+                logger.debug(f'尝试计算指标: {indicator}')
                 indicator_values = wrapped_df[indicator]
+                logger.debug(f'指标计算触发成功，新增列: {[c for c in wrapped_df.columns if c not in df.columns]}')
+                
+                # 检查计算结果
+                if indicator_values is None:
+                    error_msg = f'指标 {indicator} 计算结果为None'
+                    logger.error(error_msg)
+                    raise TechnicalAnalysisError(error_msg, indicator=indicator)
+                
+                if hasattr(indicator_values, 'empty') and indicator_values.empty:
+                    error_msg = f'指标 {indicator} 计算结果为空DataFrame/Series'
+                    logger.error(error_msg)
+                    raise TechnicalAnalysisError(error_msg, indicator=indicator)
+                
+                # 统计有效值并记录日志
+                try:
+                    if hasattr(indicator_values, 'notna') and hasattr(indicator_values, '__len__'):
+                        total_count = len(indicator_values)
+                        valid_series = indicator_values.notna().sum()
+                        # 确保获取标量值
+                        valid_count_num: Any = valid_series.item() if hasattr(valid_series, 'item') else valid_series
+                        
+                        logger.info(f'指标计算完成: {indicator}, 有效值: {valid_count_num}/{total_count}')
+                        
+                        # 检查是否全是NaN
+                        if valid_count_num <= 0:  # type: ignore
+                            error_msg = f'指标 {indicator} 计算成功但所有值都是NaN，可能是数据量不足(当前{data_count}条，建议增加lookback_days)'
+                            logger.error(error_msg)
+                            raise TechnicalAnalysisError(error_msg, indicator=indicator)
+                    else:
+                        logger.info(f'指标计算完成: {indicator}')
+                except TechnicalAnalysisError:
+                    raise  # 重新抛出技术分析错误
+                except Exception as count_error:
+                    # 统计失败不影响主流程，只记录日志
+                    logger.debug(f'统计有效值时出错: {count_error}')
                 
                 # 获取最近的有效值
                 latest_value = self._get_latest_valid_value(indicator_values)
@@ -164,10 +210,12 @@ class AShareTechnical:
                 }
                 logger.info(f"成功计算 {indicator}: {latest_value}")
                 return result
-            else:
-                error_msg = f'指标计算失败: {indicator}'
+            except (AttributeError, KeyError) as e:
+                # 指标不存在或计算失败
+                error_msg = f'指标 {indicator} 计算失败: {str(e)}. 该指标可能不被stockstats支持或名称拼写错误'
                 logger.error(error_msg)
-                raise TechnicalAnalysisError(error_msg, indicator=indicator)
+                logger.debug(f'错误类型: {type(e).__name__}, 详细信息: {e}')
+                raise TechnicalAnalysisError(error_msg, indicator=indicator, original_error=e)
         except TechnicalAnalysisError:
             raise  # 重新抛出已处理的异常
         except Exception as e:
@@ -179,8 +227,8 @@ class AShareTechnical:
         self, 
         code: str, 
         indicator: str, 
-        lookback_days: int = 30,
-        window_days: int = 60
+        lookback_days: int = 120,
+        window_days: int = 200
     ) -> dict[str, Any]:
         """
         获取指定时间窗口内的技术指标数据，仅返回原始数据
@@ -190,7 +238,7 @@ class AShareTechnical:
                 raise ValueError("股票代码不能为空")
             if not indicator or not isinstance(indicator, str):
                 raise ValueError("技术指标名称不能为空")
-            if lookback_days <= 0 or lookback_days > 100:
+            if lookback_days <= 0 or lookback_days > 1000:
                 raise ValueError("显示天数必须在1-100之间")
             if window_days <= 0 or window_days > 1000:
                 raise ValueError("计算天数必须在1-1000之间")
@@ -217,7 +265,7 @@ class AShareTechnical:
     def get_stock_technical_summary(
         self, 
         code: str, 
-        lookback_days: int = 100
+        lookback_days: int = 120
     ) -> dict[str, Any]:
         """
         获取多个核心技术指标的原始数据
@@ -360,7 +408,7 @@ def get_technical_analyzer_instance() -> "AShareTechnical":
     return get_factory().create_technical_analyzer()
 
 
-def get_technical_indicator(code: str, indicator: str, lookback_days: int = 100) -> dict[str, Any]:
+def get_technical_indicator(code: str, indicator: str, lookback_days: int = 120) -> dict[str, Any]:
     """便捷：获取技术指标数据（封装缓存）。
 
     参数:
