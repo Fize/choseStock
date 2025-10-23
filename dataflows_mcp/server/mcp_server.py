@@ -1,443 +1,357 @@
 """
 MCP服务器实现
 提供符合MCP协议的A股数据服务
+支持 stdio、sse、streamable-http 三种 transport
 """
 
-import asyncio
-import json
 import sys
 import os
 import logging
+import argparse
 from pathlib import Path
 from typing import Any, Dict, List, Optional
-from mcp.server import Server
-from mcp.server.stdio import stdio_server
-from mcp.types import Tool, TextContent
+
+from dataflows_mcp.core.logging import logger, setup_logging
+
+
+# 解析命令行参数（在导入 FastMCP 之前）
+def parse_args():
+    """解析命令行参数"""
+    parser = argparse.ArgumentParser(description="A股数据流MCP服务器")
+    parser.add_argument(
+        "--transport",
+        type=str,
+        choices=["stdio", "sse", "streamable-http"],
+        default="stdio",
+        help="Transport类型: stdio(默认), sse, streamable-http"
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=8000,
+        help="HTTP服务器端口（仅用于sse和streamable-http）"
+    )
+    parser.add_argument(
+        "--host",
+        type=str,
+        default="127.0.0.1",
+        help="HTTP服务器主机地址（仅用于sse和streamable-http）"
+    )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="启用调试模式"
+    )
+    return parser.parse_args()
+
+
+# 解析参数
+_args = parse_args()
+
+# 导入 FastMCP（在参数解析之后）
+from mcp.server.fastmcp import FastMCP, Context
+from mcp.server.session import ServerSession
 
 from dataflows_mcp.tools.mcp_tools import get_mcp_tools
-from dataflows_mcp.tools.schemas import get_all_tool_names, SCHEMA_MAPPING
-from dataflows_mcp.core.logging import logger, setup_logging
-from dataflows_mcp.core.exceptions import DataFlowError
+
+# 创建 FastMCP 服务器实例（传入 host 和 port）
+mcp = FastMCP(
+    "a-share-dataflows",
+    host=_args.host,
+    port=_args.port
+)
+
+# 获取工具实例
+mcp_tools_instance = get_mcp_tools()
 
 
+# =============================================================================
+# 工具定义 - 所有工具都支持 Context 和 Progress Notifications
+# =============================================================================
 
-class AShareMCPServer:
-    """A股数据MCP服务器"""
+@mcp.tool()
+async def get_stock_kline_data(
+    code: str,
+    lookback_days: int = 60,
+    period: str = "daily",
+    ctx: Optional[Context[ServerSession, None]] = None
+) -> Dict[str, Any]:
+    """
+    获取股票K线数据（OHLCV），支持日线、周线、月线等多种周期
+    
+    Args:
+        code: 股票代码，支持格式：600519、600519.SH、000001.SZ等
+        lookback_days: 回溯天数，范围1-1000天
+        period: 周期类型：daily(日线)、weekly(周线)、monthly(月线)
+        ctx: MCP Context，用于进度报告
+    """
+    return await mcp_tools_instance.get_stock_kline_data(code, lookback_days, period, ctx)
 
-    def __init__(self):
-        """初始化MCP服务器"""
-        self.server = Server("a-share-dataflows")
-        self.mcp_tools = get_mcp_tools()
-        self._setup_handlers()
-        logger.info("A股数据MCP服务器已初始化")
 
-    def _setup_handlers(self):
-        """设置MCP协议处理器"""
-        
-        @self.server.list_tools()
-        async def list_tools() -> List[Tool]:
-            """
-            列出所有可用的工具
-            
-            Returns:
-                工具列表
-            """
-            logger.info("收到list_tools请求")
-            
-            tools = [
-                Tool(
-                    name="get_stock_kline_data",
-                    description="获取股票K线数据（OHLCV），支持日线、周线、月线等多种周期",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "code": {
-                                "type": "string",
-                                "description": "股票代码，支持格式：600519、600519.SH、000001.SZ等"
-                            },
-                            "lookback_days": {
-                                "type": "integer",
-                                "description": "回溯天数，范围1-1000天",
-                                "default": 60,
-                                "minimum": 1,
-                                "maximum": 1000
-                            },
-                            "period": {
-                                "type": "string",
-                                "description": "周期类型：daily(日线)、weekly(周线)、monthly(月线)",
-                                "enum": ["daily", "weekly", "monthly"],
-                                "default": "daily"
-                            }
-                        },
-                        "required": ["code"]
-                    }
-                ),
-                Tool(
-                    name="get_stock_realtime_eastmoney_data",
-                    description="获取股票实时行情数据（东方财富数据源），包含最新价格、涨跌幅、成交量等信息",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "code": {
-                                "type": "string",
-                                "description": "股票代码"
-                            }
-                        },
-                        "required": ["code"]
-                    }
-                ),
-                Tool(
-                    name="get_stock_realtime_sina_data",
-                    description="获取股票实时行情数据（新浪数据源），包含最新价格、涨跌幅、成交量等信息",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "code": {
-                                "type": "string",
-                                "description": "股票代码"
-                            }
-                        },
-                        "required": ["code"]
-                    }
-                ),
-                Tool(
-                    name="get_stock_realtime_xueqiu_data",
-                    description="获取股票实时行情数据（雪球数据源），包含最新价格、涨跌幅、成交量等信息",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "code": {
-                                "type": "string",
-                                "description": "股票代码"
-                            }
-                        },
-                        "required": ["code"]
-                    }
-                ),
-                Tool(
-                    name="get_technical_indicator_data",
-                    description="计算股票技术指标，支持RSI、MACD、BOLL、均线等多种指标",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "code": {
-                                "type": "string",
-                                "description": "股票代码"
-                            },
-                            "indicator": {
-                                "type": "string",
-                                "description": "技术指标名称，如rsi、macd、boll、close_20_sma等"
-                            },
-                            "lookback_days": {
-                                "type": "integer",
-                                "description": "回溯天数，范围1-1000天",
-                                "default": 100,
-                                "minimum": 1,
-                                "maximum": 1000
-                            }
-                        },
-                        "required": ["code", "indicator"]
-                    }
-                ),
-                Tool(
-                    name="get_stock_financial_data",
-                    description="获取股票财务数据，包含资产负债表、利润表、现金流量表",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "code": {
-                                "type": "string",
-                                "description": "股票代码"
-                            },
-                            "report_type": {
-                                "type": "string",
-                                "description": "报表类型：balance_sheet(资产负债表)、income(利润表)、cashflow(现金流量表)",
-                                "enum": ["balance_sheet", "income", "cashflow"],
-                                "default": "balance_sheet"
-                            }
-                        },
-                        "required": ["code"]
-                    }
-                ),
-                Tool(
-                    name="get_stock_news_data",
-                    description="获取股票相关新闻数据",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "code": {
-                                "type": "string",
-                                "description": "股票代码"
-                            },
-                            "lookback_days": {
-                                "type": "integer",
-                                "description": "回溯天数，范围1-30天",
-                                "default": 7,
-                                "minimum": 1,
-                                "maximum": 30
-                            },
-                            "limit": {
-                                "type": "integer",
-                                "description": "新闻数量限制，范围1-500条",
-                                "default": 100,
-                                "minimum": 1,
-                                "maximum": 500
-                            }
-                        },
-                        "required": ["code"]
-                    }
-                ),
-                Tool(
-                    name="get_limit_up_stocks_data",
-                    description="获取今日涨停股票列表",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {}
-                    }
-                ),
-                Tool(
-                    name="get_stock_comment_score_data",
-                    description="获取千股千评评分数据，包含综合评分和历史趋势",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "code": {
-                                "type": "string",
-                                "description": "股票代码"
-                            }
-                        },
-                        "required": ["code"]
-                    }
-                ),
-                Tool(
-                    name="get_stock_comment_focus_data",
-                    description="获取用户关注指数数据，反映市场关注度",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "code": {
-                                "type": "string",
-                                "description": "股票代码"
-                            }
-                        },
-                        "required": ["code"]
-                    }
-                ),
-                Tool(
-                    name="get_stock_comment_desire_data",
-                    description="获取市场参与意愿数据，反映投资者参与热情",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "code": {
-                                "type": "string",
-                                "description": "股票代码"
-                            }
-                        },
-                        "required": ["code"]
-                    }
-                ),
-                Tool(
-                    name="get_stock_comment_institution_data",
-                    description="获取机构参与度数据，反映机构投资者关注程度",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "code": {
-                                "type": "string",
-                                "description": "股票代码"
-                            }
-                        },
-                        "required": ["code"]
-                    }
-                ),
-                Tool(
-                    name="get_individual_fund_flow_data",
-                    description="获取个股资金流向数据（东方财富），包含主力净流入、超大单、大单、中单、小单等资金流向",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "code": {
-                                "type": "string",
-                                "description": "股票代码，如600519"
-                            },
-                            "market": {
-                                "type": "string",
-                                "description": "市场标识，可选值: sh(上海)、sz(深圳)、bj(北京)，默认sh",
-                                "enum": ["sh", "sz", "bj"],
-                                "default": "sh"
-                            }
-                        },
-                        "required": ["code"]
-                    }
-                ),
-                Tool(
-                    name="get_concept_fund_flow_data",
-                    description="获取概念板块资金流向数据（同花顺），包含概念板块的资金流入流出情况",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "symbol": {
-                                "type": "string",
-                                "description": "时间周期，可选值: 即时、3日排行、5日排行、10日排行、20日排行",
-                                "enum": ["即时", "3日排行", "5日排行", "10日排行", "20日排行"],
-                                "default": "即时"
-                            },
-                            "indicator": {
-                                "type": "string",
-                                "description": "数据指标，与symbol保持一致",
-                                "enum": ["即时", "3日排行", "5日排行", "10日排行", "20日排行"],
-                                "default": "即时"
-                            }
-                        },
-                        "required": []
-                    }
-                ),
-                Tool(
-                    name="get_industry_fund_flow_data",
-                    description="获取行业板块资金流向数据（同花顺），包含行业板块的资金流入流出情况",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "symbol": {
-                                "type": "string",
-                                "description": "时间周期，可选值: 即时、3日排行、5日排行、10日排行、20日排行",
-                                "enum": ["即时", "3日排行", "5日排行", "10日排行", "20日排行"],
-                                "default": "即时"
-                            },
-                            "indicator": {
-                                "type": "string",
-                                "description": "数据指标，与symbol保持一致",
-                                "enum": ["即时", "3日排行", "5日排行", "10日排行", "20日排行"],
-                                "default": "即时"
-                            }
-                        },
-                        "required": []
-                    }
-                ),
-                Tool(
-                    name="get_big_deal_fund_flow_data",
-                    description="获取大单追踪数据（同花顺），包含当前时点的所有大单交易数据",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {},
-                        "required": []
-                    }
-                ),
-                Tool(
-                    name="get_stock_cyq_data",
-                    description="获取股票筹码分布数据（东方财富），包含近90个交易日的获利比例、平均成本、成本区间和集中度等筹码分析数据",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "code": {
-                                "type": "string",
-                                "description": "股票代码"
-                            },
-                            "adjust": {
-                                "type": "string",
-                                "description": "复权类型：\"\"(不复权)、\"qfq\"(前复权)、\"hfq\"(后复权)",
-                                "default": "",
-                                "enum": ["", "qfq", "hfq"]
-                            }
-                        },
-                        "required": ["code"]
-                    }
-                )
-            ]
-            
-            logger.info(f"返回{len(tools)}个可用工具")
-            return tools
+@mcp.tool()
+async def get_stock_realtime_eastmoney_data(
+    code: str,
+    ctx: Optional[Context[ServerSession, None]] = None
+) -> Dict[str, Any]:
+    """
+    获取股票实时行情数据（东方财富数据源），包含最新价格、涨跌幅、成交量等信息
+    
+    Args:
+        code: 股票代码
+        ctx: MCP Context，用于进度报告
+    """
+    return await mcp_tools_instance.get_stock_realtime_eastmoney_data(code, ctx)
 
-        @self.server.call_tool()
-        async def call_tool(name: str, arguments: Dict[str, Any]) -> List[TextContent]:
-            """
-            调用指定的工具
-            
-            Args:
-                name: 工具名称
-                arguments: 工具参数
-                
-            Returns:
-                工具执行结果
-            """
-            logger.info(f"收到call_tool请求: {name}, 参数: {arguments}")
-            
-            try:
-                # 验证工具是否存在
-                if name not in get_all_tool_names():
-                    error_msg = f"未知的工具: {name}"
-                    logger.error(error_msg)
-                    return [TextContent(
-                        type="text",
-                        text=json.dumps({
-                            "success": False,
-                            "error": error_msg
-                        }, ensure_ascii=False, indent=2)
-                    )]
-                
-                # 获取工具方法
-                tool_method = getattr(self.mcp_tools, name, None)
-                if tool_method is None:
-                    error_msg = f"工具方法未实现: {name}"
-                    logger.error(error_msg)
-                    return [TextContent(
-                        type="text",
-                        text=json.dumps({
-                            "success": False,
-                            "error": error_msg
-                        }, ensure_ascii=False, indent=2)
-                    )]
-                
-                # 调用工具方法
-                result = await tool_method(**arguments)
-                
-                # 格式化返回结果
-                logger.info(f"工具{name}执行完成，成功: {result.get('success', False)}")
-                return [TextContent(
-                    type="text",
-                    text=json.dumps(result, ensure_ascii=False, indent=2)
-                )]
-                
-            except TypeError as e:
-                error_msg = f"参数错误: {str(e)}"
-                logger.error(f"工具{name}调用失败: {error_msg}")
-                return [TextContent(
-                    type="text",
-                    text=json.dumps({
-                        "success": False,
-                        "error": error_msg
-                    }, ensure_ascii=False, indent=2)
-                )]
-            except Exception as e:
-                error_msg = f"工具执行异常: {str(e)}"
-                logger.error(f"工具{name}执行异常: {error_msg}")
-                return [TextContent(
-                    type="text",
-                    text=json.dumps({
-                        "success": False,
-                        "error": error_msg
-                    }, ensure_ascii=False, indent=2)
-                )]
 
-    async def run(self):
-        """运行MCP服务器"""
-        logger.info("启动A股数据MCP服务器...")
-        async with stdio_server() as (read_stream, write_stream):
-            logger.info("MCP服务器已启动，等待客户端连接...")
-            await self.server.run(
-                read_stream,
-                write_stream,
-                self.server.create_initialization_options()
-            )
+@mcp.tool()
+async def get_stock_realtime_sina_data(
+    code: str,
+    ctx: Optional[Context[ServerSession, None]] = None
+) -> Dict[str, Any]:
+    """
+    获取股票实时行情数据（新浪数据源），包含最新价格、涨跌幅、成交量等信息
+    
+    Args:
+        code: 股票代码
+        ctx: MCP Context，用于进度报告
+    """
+    return await mcp_tools_instance.get_stock_realtime_sina_data(code, ctx)
 
+
+@mcp.tool()
+async def get_stock_realtime_xueqiu_data(
+    code: str,
+    ctx: Optional[Context[ServerSession, None]] = None
+) -> Dict[str, Any]:
+    """
+    获取股票实时行情数据（雪球数据源），包含最新价格、涨跌幅、成交量等信息
+    
+    Args:
+        code: 股票代码
+        ctx: MCP Context，用于进度报告
+    """
+    return await mcp_tools_instance.get_stock_realtime_xueqiu_data(code, ctx)
+
+
+@mcp.tool()
+async def get_technical_indicator_data(
+    code: str,
+    indicator: str,
+    lookback_days: int = 100,
+    ctx: Optional[Context[ServerSession, None]] = None
+) -> Dict[str, Any]:
+    """
+    计算股票技术指标，支持RSI、MACD、BOLL、均线等多种指标
+    
+    Args:
+        code: 股票代码
+        indicator: 技术指标名称，如rsi、macd、boll、close_20_sma等
+        lookback_days: 回溯天数，范围1-1000天
+        ctx: MCP Context，用于进度报告
+    """
+    return await mcp_tools_instance.get_technical_indicator_data(code, indicator, lookback_days, ctx)
+
+
+@mcp.tool()
+async def get_stock_financial_data(
+    code: str,
+    report_type: str = "balance_sheet",
+    ctx: Optional[Context[ServerSession, None]] = None
+) -> Dict[str, Any]:
+    """
+    获取股票财务数据，包含资产负债表、利润表、现金流量表
+    
+    Args:
+        code: 股票代码
+        report_type: 报表类型：balance_sheet(资产负债表)、income(利润表)、cashflow(现金流量表)
+        ctx: MCP Context，用于进度报告
+    """
+    return await mcp_tools_instance.get_stock_financial_data(code, report_type, ctx)
+
+
+@mcp.tool()
+async def get_stock_news_data(
+    code: str,
+    lookback_days: int = 7,
+    limit: int = 100,
+    ctx: Optional[Context[ServerSession, None]] = None
+) -> List[Dict[str, Any]]:
+    """
+    获取股票相关新闻数据
+    
+    Args:
+        code: 股票代码
+        lookback_days: 回溯天数，范围1-30天
+        limit: 新闻数量限制，范围1-500条
+        ctx: MCP Context，用于进度报告
+    """
+    return await mcp_tools_instance.get_stock_news_data(code, lookback_days, limit, ctx)
+
+
+@mcp.tool()
+async def get_limit_up_stocks_data(
+    ctx: Optional[Context[ServerSession, None]] = None
+) -> List[Dict[str, Any]]:
+    """
+    获取今日涨停股票列表
+    
+    Args:
+        ctx: MCP Context，用于进度报告
+    """
+    return await mcp_tools_instance.get_limit_up_stocks_data(ctx)
+
+
+@mcp.tool()
+async def get_stock_comment_score_data(
+    code: str,
+    ctx: Optional[Context[ServerSession, None]] = None
+) -> Dict[str, Any]:
+    """
+    获取千股千评评分数据，包含综合评分和历史趋势
+    
+    Args:
+        code: 股票代码
+        ctx: MCP Context，用于进度报告
+    """
+    return await mcp_tools_instance.get_stock_comment_score_data(code, ctx)
+
+
+@mcp.tool()
+async def get_stock_comment_focus_data(
+    code: str,
+    ctx: Optional[Context[ServerSession, None]] = None
+) -> Dict[str, Any]:
+    """
+    获取用户关注指数数据，反映市场关注度
+    
+    Args:
+        code: 股票代码
+        ctx: MCP Context，用于进度报告
+    """
+    return await mcp_tools_instance.get_stock_comment_focus_data(code, ctx)
+
+
+@mcp.tool()
+async def get_stock_comment_desire_data(
+    code: str,
+    ctx: Optional[Context[ServerSession, None]] = None
+) -> Dict[str, Any]:
+    """
+    获取市场参与意愿数据，反映投资者参与热情
+    
+    Args:
+        code: 股票代码
+        ctx: MCP Context，用于进度报告
+    """
+    return await mcp_tools_instance.get_stock_comment_desire_data(code, ctx)
+
+
+@mcp.tool()
+async def get_stock_comment_institution_data(
+    code: str,
+    ctx: Optional[Context[ServerSession, None]] = None
+) -> Dict[str, Any]:
+    """
+    获取机构参与度数据，反映机构投资者关注程度
+    
+    Args:
+        code: 股票代码
+        ctx: MCP Context，用于进度报告
+    """
+    return await mcp_tools_instance.get_stock_comment_institution_data(code, ctx)
+
+
+@mcp.tool()
+async def get_individual_fund_flow_data(
+    code: str,
+    market: str = "sh",
+    ctx: Optional[Context[ServerSession, None]] = None
+) -> Dict[str, Any]:
+    """
+    获取个股资金流向数据（东方财富），包含主力净流入、超大单、大单、中单、小单等资金流向
+    
+    Args:
+        code: 股票代码，如600519
+        market: 市场标识，可选值: sh(上海)、sz(深圳)、bj(北京)，默认sh
+        ctx: MCP Context，用于进度报告
+    """
+    return await mcp_tools_instance.get_individual_fund_flow_data(code, market, ctx)
+
+
+@mcp.tool()
+async def get_concept_fund_flow_data(
+    symbol: str = "即时",
+    indicator: str = "即时",
+    ctx: Optional[Context[ServerSession, None]] = None
+) -> List[Dict[str, Any]]:
+    """
+    获取概念板块资金流向数据（同花顺），包含概念板块的资金流入流出情况
+    
+    Args:
+        symbol: 时间周期，可选值: 即时、3日排行、5日排行、10日排行、20日排行
+        indicator: 数据指标，与symbol保持一致
+        ctx: MCP Context，用于进度报告
+    """
+    return await mcp_tools_instance.get_concept_fund_flow_data(symbol, indicator, ctx)
+
+
+@mcp.tool()
+async def get_industry_fund_flow_data(
+    symbol: str = "即时",
+    indicator: str = "即时",
+    ctx: Optional[Context[ServerSession, None]] = None
+) -> List[Dict[str, Any]]:
+    """
+    获取行业板块资金流向数据（同花顺），包含行业板块的资金流入流出情况
+    
+    Args:
+        symbol: 时间周期，可选值: 即时、3日排行、5日排行、10日排行、20日排行
+        indicator: 数据指标，与symbol保持一致
+        ctx: MCP Context，用于进度报告
+    """
+    return await mcp_tools_instance.get_industry_fund_flow_data(symbol, indicator, ctx)
+
+
+@mcp.tool()
+async def get_big_deal_fund_flow_data(
+    ctx: Optional[Context[ServerSession, None]] = None
+) -> List[Dict[str, Any]]:
+    """
+    获取大单追踪数据（东方财富），包含大单交易明细
+    
+    Args:
+        ctx: MCP Context，用于进度报告
+    """
+    return await mcp_tools_instance.get_big_deal_fund_flow_data(ctx)
+
+
+@mcp.tool()
+async def get_stock_cyq_data(
+    code: str,
+    date: Optional[str] = None,
+    ctx: Optional[Context[ServerSession, None]] = None
+) -> Dict[str, Any]:
+    """
+    获取股票筹码分布数据，分析持仓成本分布
+    
+    Args:
+        code: 股票代码
+        date: 查询日期，格式YYYYMMDD，默认为最新交易日
+        ctx: MCP Context，用于进度报告
+    """
+    return await mcp_tools_instance.get_stock_cyq_data(code, date, ctx)
+
+
+# =============================================================================
+# 主函数
+# =============================================================================
 
 def main():
     """主函数 - MCP服务器入口点"""
+    global _args
+    
     # 初始化日志系统
-    # 支持通过环境变量 STOCK_LOG_FILE 配置日志文件路径
-    # 默认保存到 ~/.stock.log
-    log_level = logging.DEBUG if os.environ.get('DEBUG') else logging.INFO
+    log_level = logging.DEBUG if _args.debug or os.environ.get('DEBUG') else logging.INFO
     setup_logging(level=log_level, log_to_file=True)
     
     # 记录启动信息
@@ -445,37 +359,43 @@ def main():
     logger.info("A股数据流MCP服务器启动")
     logger.info("=" * 60)
     logger.info(f"Python版本: {sys.version.split()[0]}")
+    logger.info(f"Transport: {_args.transport}")
+    if _args.transport in ["sse", "streamable-http"]:
+        logger.info(f"监听地址: {_args.host}:{_args.port}")
     logger.info(f"日志级别: {'DEBUG' if log_level == logging.DEBUG else 'INFO'}")
     
     # 记录环境变量配置
     log_file = os.environ.get('STOCK_LOG_FILE', str(Path.home() / '.stock.log'))
     logger.info(f"日志文件: {log_file}")
     
-    if os.environ.get('DEBUG'):
+    if _args.debug:
         logger.info("调试模式: 已启用")
     
-    async def run_server():
-        """异步运行服务器"""
-        try:
-            logger.info("正在初始化MCP服务器...")
-            server = AShareMCPServer()
-            logger.info("MCP服务器初始化完成")
-            logger.info("服务器已就绪，等待客户端连接...")
-            logger.info("-" * 60)
-            await server.run()
-        except KeyboardInterrupt:
-            logger.info("-" * 60)
-            logger.info("收到中断信号，正在关闭服务器...")
-            logger.info("服务器已安全关闭")
-        except Exception as e:
-            logger.error("-" * 60)
-            logger.error(f"服务器运行异常: {str(e)}")
-            logger.error("服务器异常退出")
-            import traceback
-            logger.error(f"错误堆栈:\n{traceback.format_exc()}")
-            sys.exit(1)
+    logger.info("-" * 60)
     
-    asyncio.run(run_server())
+    try:
+        # 根据 transport 类型启动服务器
+        if _args.transport == "stdio":
+            logger.info("使用 stdio transport，等待客户端连接...")
+            mcp.run(transport="stdio")
+        elif _args.transport == "sse":
+            logger.info(f"使用 SSE transport，服务器启动在 http://{_args.host}:{_args.port}")
+            mcp.run(transport="sse")
+        elif _args.transport == "streamable-http":
+            logger.info(f"使用 Streamable HTTP transport，服务器启动在 http://{_args.host}:{_args.port}")
+            mcp.run(transport="streamable-http")
+            
+    except KeyboardInterrupt:
+        logger.info("-" * 60)
+        logger.info("收到中断信号，正在关闭服务器...")
+        logger.info("服务器已安全关闭")
+    except Exception as e:
+        logger.error("-" * 60)
+        logger.error(f"服务器运行异常: {str(e)}")
+        logger.error("服务器异常退出")
+        import traceback
+        logger.error(f"错误堆栈:\n{traceback.format_exc()}")
+        sys.exit(1)
 
 
 if __name__ == "__main__":
