@@ -147,6 +147,80 @@ MCP 服务器通过标准输入输出（stdio）与客户端通信。在 MCP 客
 npx @modelcontextprotocol/inspector uvx --from git+https://github.com/Fize/choseStock.git a-share-mcp
 ```
 
+## ⚙️ 配置选项
+
+### 环境变量
+
+服务器支持以下环境变量配置：
+
+#### 日志配置
+
+- **STOCK_LOG_FILE**: 自定义日志文件路径
+  - 默认值: `~/.stock.log`
+  - 示例: `export STOCK_LOG_FILE=/var/log/stock.log`
+
+- **DEBUG**: 启用调试模式
+  - 默认值: 未设置（INFO级别）
+  - 设置任意值启用: `export DEBUG=1`
+
+#### 使用示例
+
+```bash
+# 使用默认配置（日志保存到 ~/.stock.log）
+uvx --from git+https://github.com/Fize/choseStock.git a-share-mcp
+
+# 自定义日志文件位置
+STOCK_LOG_FILE=/tmp/stock.log uvx --from git+https://github.com/Fize/choseStock.git a-share-mcp
+
+# 启用调试模式
+DEBUG=1 uvx --from git+https://github.com/Fize/choseStock.git a-share-mcp
+
+# 组合使用
+DEBUG=1 STOCK_LOG_FILE=/tmp/stock_debug.log uvx --from git+https://github.com/Fize/choseStock.git a-share-mcp
+```
+
+#### 在MCP客户端配置中使用
+
+```json
+{
+  "mcpServers": {
+    "a-share-dataflows": {
+      "command": "uvx",
+      "args": [
+        "--from",
+        "git+https://github.com/Fize/choseStock.git",
+        "a-share-mcp"
+      ],
+      "env": {
+        "STOCK_LOG_FILE": "/path/to/your/stock.log",
+        "DEBUG": "1"
+      }
+    }
+  }
+}
+```
+
+### 日志功能
+
+- **双重输出**: 日志同时输出到终端和文件
+- **自动轮转**: 单个文件最大10MB，保留5个备份
+- **UTF-8编码**: 支持中文日志
+- **详细信息**: 包含时间戳、模块名、日志级别和消息
+
+查看日志：
+```bash
+# 实时查看日志
+tail -f ~/.stock.log
+
+# 查看最后100行
+tail -100 ~/.stock.log
+
+# 搜索错误信息
+grep "ERROR" ~/.stock.log
+```
+
+详细的日志使用说明请参考 [LOG_USAGE.md](./LOG_USAGE.md)
+
 ## 💻 开发指南
 
 ### 常用命令

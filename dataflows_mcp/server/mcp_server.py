@@ -6,6 +6,9 @@ MCP服务器实现
 import asyncio
 import json
 import sys
+import os
+import logging
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
@@ -13,7 +16,7 @@ from mcp.types import Tool, TextContent
 
 from dataflows_mcp.tools.mcp_tools import get_mcp_tools
 from dataflows_mcp.tools.schemas import get_all_tool_names, SCHEMA_MAPPING
-from dataflows_mcp.core.logging import logger
+from dataflows_mcp.core.logging import logger, setup_logging
 from dataflows_mcp.core.exceptions import DataFlowError
 
 
@@ -431,15 +434,45 @@ class AShareMCPServer:
 
 def main():
     """主函数 - MCP服务器入口点"""
+    # 初始化日志系统
+    # 支持通过环境变量 STOCK_LOG_FILE 配置日志文件路径
+    # 默认保存到 ~/.stock.log
+    log_level = logging.DEBUG if os.environ.get('DEBUG') else logging.INFO
+    setup_logging(level=log_level, log_to_file=True)
+    
+    # 记录启动信息
+    logger.info("=" * 60)
+    logger.info("A股数据流MCP服务器启动")
+    logger.info("=" * 60)
+    logger.info(f"Python版本: {sys.version.split()[0]}")
+    logger.info(f"日志级别: {'DEBUG' if log_level == logging.DEBUG else 'INFO'}")
+    
+    # 记录环境变量配置
+    log_file = os.environ.get('STOCK_LOG_FILE', str(Path.home() / '.stock.log'))
+    logger.info(f"日志文件: {log_file}")
+    
+    if os.environ.get('DEBUG'):
+        logger.info("调试模式: 已启用")
+    
     async def run_server():
         """异步运行服务器"""
         try:
+            logger.info("正在初始化MCP服务器...")
             server = AShareMCPServer()
+            logger.info("MCP服务器初始化完成")
+            logger.info("服务器已就绪，等待客户端连接...")
+            logger.info("-" * 60)
             await server.run()
         except KeyboardInterrupt:
+            logger.info("-" * 60)
             logger.info("收到中断信号，正在关闭服务器...")
+            logger.info("服务器已安全关闭")
         except Exception as e:
+            logger.error("-" * 60)
             logger.error(f"服务器运行异常: {str(e)}")
+            logger.error("服务器异常退出")
+            import traceback
+            logger.error(f"错误堆栈:\n{traceback.format_exc()}")
             sys.exit(1)
     
     asyncio.run(run_server())
