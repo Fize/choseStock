@@ -9,7 +9,9 @@ from typing import Any, Dict, List, Optional
 from datetime import datetime
 from ..core import (
     get_stock_kline,
-    get_stock_realtime,
+    get_stock_realtime_eastmoney,
+    get_stock_realtime_sina,
+    get_stock_realtime_xueqiu,
     get_stock_financials,
     get_stock_news,
     get_stock_comment_score,
@@ -25,7 +27,6 @@ from ..core import (
     get_stock_cyq,
     format_stock_code,
     get_current_date,
-    validate_date_format,
     get_exchange_code
 )
 from ..core.logging import logger
@@ -100,9 +101,9 @@ class MCPTools:
                 "error": f"系统错误: {str(e)}"
             }
 
-    async def get_stock_realtime_data(self, code: str) -> Dict[str, Any]:
+    async def get_stock_realtime_eastmoney_data(self, code: str) -> Dict[str, Any]:
         """
-        获取股票实时行情 - MCP工具
+        获取股票实时行情（东方财富数据源） - MCP工具
 
         Args:
             code: 股票代码
@@ -111,17 +112,17 @@ class MCPTools:
             实时行情数据字典
         """
         try:
-            logger.info(f"MCP工具调用: 获取股票{code}实时行情")
+            logger.info(f"MCP工具调用: 获取股票{code}实时行情（东方财富）")
 
             loop = asyncio.get_event_loop()
             result = await loop.run_in_executor(
                 None,
-                get_stock_realtime,
+                get_stock_realtime_eastmoney,
                 code
             )
 
             realtime_data = result.get("data", {})
-            logger.info(f"成功获取股票{code}实时行情: {realtime_data.get('price', 'N/A')}")
+            logger.info(f"成功获取股票{code}实时行情（东方财富）: {realtime_data.get('price', 'N/A')}")
 
             return {
                 "success": True,
@@ -130,14 +131,102 @@ class MCPTools:
             }
 
         except (AkshareAPIError, ValidationError) as e:
-            logger.error(f"获取实时行情失败: {str(e)}")
+            logger.error(f"获取实时行情失败（东方财富）: {str(e)}")
             return {
                 "success": False,
                 "data": {},
                 "error": str(e)
             }
         except Exception as e:
-            logger.error(f"获取实时行情异常: {str(e)}")
+            logger.error(f"获取实时行情异常（东方财富）: {str(e)}")
+            return {
+                "success": False,
+                "data": {},
+                "error": f"系统错误: {str(e)}"
+            }
+
+    async def get_stock_realtime_sina_data(self, code: str) -> Dict[str, Any]:
+        """
+        获取股票实时行情（新浪数据源） - MCP工具
+
+        Args:
+            code: 股票代码
+
+        Returns:
+            实时行情数据字典
+        """
+        try:
+            logger.info(f"MCP工具调用: 获取股票{code}实时行情（新浪）")
+
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(
+                None,
+                get_stock_realtime_sina,
+                code
+            )
+
+            realtime_data = result.get("data", {})
+            logger.info(f"成功获取股票{code}实时行情（新浪）: {realtime_data.get('price', 'N/A')}")
+
+            return {
+                "success": True,
+                "data": realtime_data,
+                "error": None
+            }
+
+        except (AkshareAPIError, ValidationError) as e:
+            logger.error(f"获取实时行情失败（新浪）: {str(e)}")
+            return {
+                "success": False,
+                "data": {},
+                "error": str(e)
+            }
+        except Exception as e:
+            logger.error(f"获取实时行情异常（新浪）: {str(e)}")
+            return {
+                "success": False,
+                "data": {},
+                "error": f"系统错误: {str(e)}"
+            }
+
+    async def get_stock_realtime_xueqiu_data(self, code: str) -> Dict[str, Any]:
+        """
+        获取股票实时行情（雪球数据源） - MCP工具
+
+        Args:
+            code: 股票代码
+
+        Returns:
+            实时行情数据字典
+        """
+        try:
+            logger.info(f"MCP工具调用: 获取股票{code}实时行情（雪球）")
+
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(
+                None,
+                get_stock_realtime_xueqiu,
+                code
+            )
+
+            realtime_data = result.get("data", {})
+            logger.info(f"成功获取股票{code}实时行情（雪球）: {realtime_data.get('price', 'N/A')}")
+
+            return {
+                "success": True,
+                "data": realtime_data,
+                "error": None
+            }
+
+        except (AkshareAPIError, ValidationError) as e:
+            logger.error(f"获取实时行情失败（雪球）: {str(e)}")
+            return {
+                "success": False,
+                "data": {},
+                "error": str(e)
+            }
+        except Exception as e:
+            logger.error(f"获取实时行情异常（雪球）: {str(e)}")
             return {
                 "success": False,
                 "data": {},

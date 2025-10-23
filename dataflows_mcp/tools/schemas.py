@@ -446,7 +446,9 @@ class StockCyqSchema(BaseModel):
 # Schema映射字典，用于工具注册
 SCHEMA_MAPPING = {
     "get_stock_kline_data": KLineDataSchema,
-    "get_stock_realtime_data": RealTimeQuotesSchema,
+    "get_stock_realtime_eastmoney_data": RealTimeQuotesSchema,
+    "get_stock_realtime_sina_data": RealTimeQuotesSchema,
+    "get_stock_realtime_xueqiu_data": RealTimeQuotesSchema,
     "get_technical_indicator_data": TechnicalIndicatorSchema,
     "get_stock_financial_data": FinancialDataSchema,
     "get_stock_news_data": NewsDataSchema,

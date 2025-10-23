@@ -140,20 +140,3 @@ class ConfigurationError(DataFlowError):
         super().__init__(message, original_error)
 
 
-# 异常工具函数
-def wrap_exception(original_error: Exception, exception_class: type, message: str = None) -> DataFlowError:
-    """
-    包装原始异常为自定义异常
-
-    Args:
-        original_error: 原始异常
-        exception_class: 目标异常类
-        message: 自定义消息（可选）
-
-    Returns:
-        包装后的异常实例
-    """
-    if message is None:
-        message = str(original_error)
-
-    return exception_class(message, original_error=original_error)

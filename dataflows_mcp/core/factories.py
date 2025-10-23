@@ -15,7 +15,6 @@ class DataFlowFactory:
 
     def __init__(self):
         """初始化工厂"""
-        self._shared_resources = {}
         logger.info("数据流服务工厂已初始化")
 
     def create_akshare_client(self) -> "AkshareClient":
@@ -79,55 +78,6 @@ class DataFlowFactory:
             AShareTechnical实例
         """
         return self.create_technical_analyzer()
-
-    def create_session_cache(self) -> "SessionCache":
-        """
-        创建会话缓存实例
-
-        Returns:
-            SessionCache实例
-        """
-        try:
-            from .session_cache import SessionCache
-
-            cache = SessionCache()
-            logger.debug("创建新的会话缓存实例")
-            return cache
-
-        except ImportError as e:
-            logger.error(f"导入SessionCache失败: {e}")
-            raise
-        except Exception as e:
-            logger.error(f"创建会话缓存失败: {e}")
-            raise
-
-    def set_shared_resource(self, key: str, resource: any) -> None:
-        """
-        设置共享资源
-
-        Args:
-            key: 资源键
-            resource: 资源对象
-        """
-        self._shared_resources[key] = resource
-        logger.debug(f"设置共享资源: {key}")
-
-    def get_shared_resource(self, key: str) -> Optional[any]:
-        """
-        获取共享资源
-
-        Args:
-            key: 资源键
-
-        Returns:
-            资源对象或None
-        """
-        return self._shared_resources.get(key)
-
-    def clear_shared_resources(self) -> None:
-        """清理所有共享资源"""
-        self._shared_resources.clear()
-        logger.debug("已清理所有共享资源")
 
 
 # 全局工厂实例（非单例，可随时替换）

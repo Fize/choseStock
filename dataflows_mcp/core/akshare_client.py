@@ -9,7 +9,7 @@ from typing import Optional, Any, Dict
 from datetime import datetime, timedelta
 from dataclasses import dataclass
 from .session_cache import session_cache
-from .utils import format_stock_code
+from .utils import format_stock_code, get_exchange_code
 from .logging import logger
 from .exceptions import AkshareAPIError, DataFlowError
 
@@ -164,54 +164,26 @@ class AkshareClient:
             raise AkshareAPIError(f"获取K线数据失败: {str(e)}", code=code, original_error=e)
     
     @session_cache()
-    def get_stock_realtime(self, code: str) -> dict[str, Any]:
+    def get_stock_realtime_eastmoney(self, code: str) -> dict[str, Any]:
         """
-        获取股票实时行情 - 支持多接口回退
+        获取股票实时行情 - 东方财富数据源
         
         Args:
             code: 股票代码
+            
         Returns:
             实时行情数据字典
         """
         try:
-            # 优先尝试东方财富接口
-            try:
-                eastmoney_result = self._get_stock_realtime_eastmoney(code)
-                if eastmoney_result['error'] is None:
-                    logger.info(f"成功获取 {code} 实时行情 (东方财富)")
-                    return eastmoney_result
-                else:
-                    logger.warning(f"东方财富接口失败: {eastmoney_result['error']}")
-            except Exception as e:
-                logger.error(f'东方财富接口异常: {e}')
-
-            # 其次尝试新浪接口
-            try:
-                sina_result = self._get_stock_realtime_sina(code)
-                if sina_result['error'] is None:
-                    logger.info(f"成功获取 {code} 实时行情 (新浪)")
-                    return sina_result
-                else:
-                    logger.warning(f"新浪接口失败: {sina_result['error']}")
-            except Exception as e:
-                logger.error(f"新浪接口异常: {e}")
-            # 所有接口都失败
-            logger.error(f"所有接口获取股票{code}实时行情均失败")
-            raise AkshareAPIError(f"所有接口获取股票{code}实时行情均失败", code=code)
-        except Exception as e:
-            logger.error(f"获取实时行情失败: {str(e)}")
-            raise AkshareAPIError(f"获取实时行情失败: {str(e)}", code=code, original_error=e)
-
-    def _get_stock_realtime_eastmoney(self, code: str) -> dict[str, Any]:
-        """获取股票实时行情 - 东方财富接口"""
-        try:
-            logger.debug(f"尝试使用东方财富接口获取 {code} 实时行情")
-            df = ak.stock_zh_a_spot_em()
+            logger.info(f"获取 {code} 实时行情 (东方财富)")
             clean_code = format_stock_code(code, target_format="plain")
+            df = ak.stock_zh_a_spot_em()
             stock_data = df[df['代码'] == clean_code]
 
             if stock_data.empty:
-                return {'data': {}, 'error': f'未找到股票{code}的实时数据(东方财富)'}
+                error_msg = f'未找到股票{code}的实时数据(东方财富)'
+                logger.error(error_msg)
+                raise AkshareAPIError(error_msg, code=code)
 
             row = stock_data.iloc[0]
             realtime_data = {
@@ -228,20 +200,37 @@ class AkshareClient:
                 'pre_close': float(row['昨收']) if pd.notna(row['昨收']) else 0.0,
                 'source': 'eastmoney',
             }
-            logger.debug(f"成功获取 {code} 实时行情 (东方财富)")
+            logger.info(f"成功获取 {code} 实时行情 (东方财富): {realtime_data['price']}")
             return {'data': realtime_data, 'error': None}
+            
+        except AkshareAPIError:
+            raise
         except Exception as e:
-            return {'data': {}, 'error': f"东方财富接口异常: {str(e)}"}
+            error_msg = f"东方财富接口异常: {str(e)}"
+            logger.error(error_msg)
+            raise AkshareAPIError(error_msg, code=code, original_error=e)
     
-    def _get_stock_realtime_sina(self, code: str) -> dict[str, Any]:
-        """获取股票实时行情 - 新浪接口"""
+    @session_cache()
+    def get_stock_realtime_sina(self, code: str) -> dict[str, Any]:
+        """
+        获取股票实时行情 - 新浪数据源
+        
+        Args:
+            code: 股票代码
+            
+        Returns:
+            实时行情数据字典
+        """
         try:
-            df = ak.stock_zh_a_spot()
+            logger.info(f"获取 {code} 实时行情 (新浪)")
             sina_code = format_stock_code(code, target_format="sina")
+            df = ak.stock_zh_a_spot()
             stock_data = df[df['代码'] == sina_code]
             
             if stock_data.empty:
-                return {'data': {}, 'error': f'未找到股票{code}的实时数据(新浪)'}
+                error_msg = f'未找到股票{code}的实时数据(新浪)'
+                logger.error(error_msg)
+                raise AkshareAPIError(error_msg, code=code)
             
             row = stock_data.iloc[0]
             realtime_data = {
@@ -258,11 +247,73 @@ class AkshareClient:
                 'pre_close': float(row['昨收']) if pd.notna(row['昨收']) else 0.0,
                 'source': 'sina',
             }
-            logger.debug(f"成功获取 {code} 实时行情 (新浪)")
+            logger.info(f"成功获取 {code} 实时行情 (新浪): {realtime_data['price']}")
             return {'data': realtime_data, 'error': None}
+            
+        except AkshareAPIError:
+            raise
         except Exception as e:
-            return {'data': {}, 'error': f"获取实时行情失败(新浪): {str(e)}"}
+            error_msg = f"新浪接口异常: {str(e)}"
+            logger.error(error_msg)
+            raise AkshareAPIError(error_msg, code=code, original_error=e)
     
+    @session_cache()
+    def get_stock_realtime_xueqiu(self, code: str) -> dict[str, Any]:
+        """
+        获取股票实时行情 - 雪球数据源
+        
+        注意：雪球接口可能需要配置 token，或受反爬虫限制。
+        如果遇到错误，建议使用东方财富或新浪数据源。
+        
+        Args:
+            code: 股票代码
+            
+        Returns:
+            实时行情数据字典
+        """
+        try:
+            logger.info(f"获取 {code} 实时行情 (雪球)")
+            clean_code = format_stock_code(code, target_format="plain")
+            exchange = get_exchange_code(clean_code)
+            
+            # 雪球接口需要格式: SH600519, SZ000001
+            xueqiu_code = f"{exchange}{clean_code}"
+            
+            # 使用雪球接口
+            # 注意：此接口可能需要 token 参数，详见 akshare 文档
+            df = ak.stock_individual_spot_xq(symbol=xueqiu_code)
+            
+            if df.empty:
+                error_msg = f'未找到股票{code}的实时数据(雪球)'
+                logger.error(error_msg)
+                raise AkshareAPIError(error_msg, code=code)
+            
+            row = df.iloc[0]
+            realtime_data = {
+                'code': code,
+                'name': str(row['名称']) if pd.notna(row['名称']) else '',
+                'price': float(row['最新价']) if pd.notna(row['最新价']) else 0.0,
+                'change': float(row['涨跌额']) if pd.notna(row['涨跌额']) else 0.0,
+                'change_percent': float(row['涨跌幅']) if pd.notna(row['涨跌幅']) else 0.0,
+                'volume': int(row['成交量']) if pd.notna(row['成交量']) else 0,
+                'amount': float(row['成交额']) if pd.notna(row['成交额']) else 0.0,
+                'open': float(row['今开']) if pd.notna(row['今开']) else 0.0,
+                'high': float(row['最高']) if pd.notna(row['最高']) else 0.0,
+                'low': float(row['最低']) if pd.notna(row['最低']) else 0.0,
+                'pre_close': float(row['昨收']) if pd.notna(row['昨收']) else 0.0,
+                'source': 'xueqiu',
+            }
+            logger.info(f"成功获取 {code} 实时行情 (雪球): {realtime_data['price']}")
+            return {'data': realtime_data, 'error': None}
+            
+        except AkshareAPIError:
+            raise
+        except Exception as e:
+            error_msg = f"雪球接口异常: {str(e)}。提示: 雪球接口可能需要token或受反爬虫限制，建议使用东方财富或新浪数据源"
+            logger.error(error_msg)
+            raise AkshareAPIError(error_msg, code=code, original_error=e)
+
+
     @session_cache()
     def get_stock_financials(
         self, 
@@ -1147,8 +1198,8 @@ def get_stock_kline(code: str, lookback_days: int = 60, period: str = "daily") -
     """
     return get_akshare_client_instance().get_stock_kline(code, lookback_days, period)
 
-def get_stock_realtime(code: str) -> dict[str, Any]:
-    """便捷：获取股票实时行情（会尝试多接口回退并使用缓存）。
+def get_stock_realtime_eastmoney(code: str) -> dict[str, Any]:
+    """便捷：获取股票实时行情（东方财富数据源）。
 
     参数:
         code: 股票代码
@@ -1157,11 +1208,44 @@ def get_stock_realtime(code: str) -> dict[str, Any]:
         dict: 包含 'data' 和 'error' 字段的字典，data 为实时行情字典。
 
     示例:
-        >>> from dataflows_mcp.core.akshare_client import get_stock_realtime
-        >>> res = get_stock_realtime('600519')
+        >>> from dataflows_mcp.core.akshare_client import get_stock_realtime_eastmoney
+        >>> res = get_stock_realtime_eastmoney('600519')
         >>> print(res['data']['price'])
     """
-    return get_akshare_client_instance().get_stock_realtime(code)
+    return get_akshare_client_instance().get_stock_realtime_eastmoney(code)
+
+def get_stock_realtime_sina(code: str) -> dict[str, Any]:
+    """便捷：获取股票实时行情（新浪数据源）。
+
+    参数:
+        code: 股票代码
+
+    返回:
+        dict: 包含 'data' 和 'error' 字段的字典，data 为实时行情字典。
+
+    示例:
+        >>> from dataflows_mcp.core.akshare_client import get_stock_realtime_sina
+        >>> res = get_stock_realtime_sina('600519')
+        >>> print(res['data']['price'])
+    """
+    return get_akshare_client_instance().get_stock_realtime_sina(code)
+
+def get_stock_realtime_xueqiu(code: str) -> dict[str, Any]:
+    """便捷：获取股票实时行情（雪球数据源）。
+
+    参数:
+        code: 股票代码
+
+    返回:
+        dict: 包含 'data' 和 'error' 字段的字典，data 为实时行情字典。
+
+    示例:
+        >>> from dataflows_mcp.core.akshare_client import get_stock_realtime_xueqiu
+        >>> res = get_stock_realtime_xueqiu('600519')
+        >>> print(res['data']['price'])
+    """
+    return get_akshare_client_instance().get_stock_realtime_xueqiu(code)
+
 
 def get_stock_financials(code: str, report_type: str = "balance_sheet") -> dict[str, Any]:
     """便捷：获取股票财务报表数据，支持多数据源回退。

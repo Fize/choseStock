@@ -70,8 +70,36 @@ class AShareMCPServer:
                     }
                 ),
                 Tool(
-                    name="get_stock_realtime_data",
-                    description="获取股票实时行情数据，包含最新价格、涨跌幅、成交量等信息",
+                    name="get_stock_realtime_eastmoney_data",
+                    description="获取股票实时行情数据（东方财富数据源），包含最新价格、涨跌幅、成交量等信息",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "code": {
+                                "type": "string",
+                                "description": "股票代码"
+                            }
+                        },
+                        "required": ["code"]
+                    }
+                ),
+                Tool(
+                    name="get_stock_realtime_sina_data",
+                    description="获取股票实时行情数据（新浪数据源），包含最新价格、涨跌幅、成交量等信息",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "code": {
+                                "type": "string",
+                                "description": "股票代码"
+                            }
+                        },
+                        "required": ["code"]
+                    }
+                ),
+                Tool(
+                    name="get_stock_realtime_xueqiu_data",
+                    description="获取股票实时行情数据（雪球数据源），包含最新价格、涨跌幅、成交量等信息",
                     inputSchema={
                         "type": "object",
                         "properties": {

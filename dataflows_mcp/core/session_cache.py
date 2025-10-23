@@ -19,20 +19,8 @@ class SessionCache:
     def set(self, key: str, value: Any) -> None:
         self._cache[key] = value
 
-    def delete(self, key: str) -> bool:
-        if key in self._cache:
-            self._cache.pop(key)
-            return True
-        return False
-
     def clear(self) -> None:
         self._cache.clear()
-
-    def __len__(self) -> int:
-        return len(self._cache)
-
-    def __contains__(self, key: str) -> bool:
-        return key in self._cache
 
     def get_stats(self) -> dict[str, Any]:
         total_entries = len(self._cache)
