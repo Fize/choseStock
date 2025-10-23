@@ -5,8 +5,113 @@
 """
 
 from datetime import date, datetime
+from typing import Any, Dict
+import pandas as pd
+import numpy as np
 from .logging import logger
 from .exceptions import ValidationError, DataFlowError
+
+
+def safe_serialize_value(value: Any) -> Any:
+    """
+    安全地将值转换为可JSON序列化的类型
+    
+    Args:
+        value: 需要转换的值
+        
+    Returns:
+        可序列化的Python原生类型
+    """
+    # 处理None
+    if value is None or (hasattr(value, '__len__') and len(value) == 0):
+        return None
+    
+    # 处理pandas的NA值
+    if pd.isna(value):
+        return None
+    
+    # 处理numpy和pandas的数值类型
+    if isinstance(value, (np.integer, np.int64, np.int32)):
+        return int(value)
+    if isinstance(value, (np.floating, np.float64, np.float32)):
+        return float(value)
+    if isinstance(value, np.bool_):
+        return bool(value)
+    
+    # 处理Timestamp
+    if isinstance(value, pd.Timestamp):
+        return value.strftime('%Y-%m-%d %H:%M:%S')
+    if hasattr(value, 'strftime'):  # datetime对象
+        return value.strftime('%Y-%m-%d %H:%M:%S')
+    
+    # 处理字符串
+    if isinstance(value, (str, int, float, bool)):
+        return value
+    
+    # 其他情况尝试转为字符串
+    return str(value)
+
+
+def dataframe_to_dict(df: pd.DataFrame, orient: str = 'records') -> Any:
+    """
+    安全地将DataFrame转换为字典，确保所有值都可JSON序列化
+    
+    Args:
+        df: pandas DataFrame
+        orient: 转换方向 'records'(行列表) / 'dict'(列字典) / 'list'(列列表)
+        
+    Returns:
+        可JSON序列化的字典或列表
+    """
+    if df is None or df.empty:
+        return [] if orient == 'records' else {}
+    
+    # 先转为dict
+    data = df.to_dict(orient=orient)
+    
+    # 递归清理所有值
+    if orient == 'records':
+        # 列表形式: [{col1: val1, col2: val2}, ...]
+        return [{k: safe_serialize_value(v) for k, v in row.items()} for row in data]
+    elif orient == 'dict':
+        # 字典形式: {col1: {row1: val1, ...}, ...}
+        return {col: {k: safe_serialize_value(v) for k, v in vals.items()} 
+                for col, vals in data.items()}
+    elif orient == 'list':
+        # 列表形式: {col1: [val1, val2, ...], ...}
+        return {col: [safe_serialize_value(v) for v in vals] 
+                for col, vals in data.items()}
+    else:
+        return data
+
+
+def series_to_dict(series: pd.Series) -> Dict[str, Any]:
+    """
+    安全地将Series转换为字典，确保所有键值都可JSON序列化
+    
+    Args:
+        series: pandas Series
+        
+    Returns:
+        可JSON序列化的字典
+    """
+    if series is None or series.empty:
+        return {}
+    
+    result = {}
+    for idx, val in series.items():
+        # 转换键
+        if isinstance(idx, pd.Timestamp):
+            key = idx.strftime('%Y-%m-%d')
+        elif hasattr(idx, 'strftime'):
+            key = idx.strftime('%Y-%m-%d')
+        else:
+            key = str(idx)
+        
+        # 转换值
+        result[key] = safe_serialize_value(val)
+    
+    return result
 
 
 def get_current_date() -> str:

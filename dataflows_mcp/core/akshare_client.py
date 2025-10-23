@@ -9,7 +9,7 @@ from typing import Optional, Any, Dict
 from datetime import datetime, timedelta
 from dataclasses import dataclass
 from .session_cache import session_cache
-from .utils import format_stock_code, get_exchange_code
+from .utils import format_stock_code, get_exchange_code, series_to_dict
 from .logging import logger
 from .exceptions import AkshareAPIError, DataFlowError
 
@@ -390,8 +390,8 @@ class AkshareClient:
             if df is None or df.empty:
                 return None
             
-            # 获取最新一期数据
-            latest_data = df.iloc[0].to_dict()
+            # 获取最新一期数据（安全序列化）
+            latest_data = series_to_dict(df.iloc[0])
             return latest_data
             
         except Exception as e:
@@ -415,8 +415,8 @@ class AkshareClient:
             if df is None or df.empty:
                 return None
             
-            # 获取最新一期数据
-            latest_data = df.iloc[0].to_dict()
+            # 获取最新一期数据（安全序列化）
+            latest_data = series_to_dict(df.iloc[0])
             return latest_data
 
         except Exception as e:
@@ -440,8 +440,8 @@ class AkshareClient:
             if df is None or df.empty:
                 return None
             
-            # 获取最新一期数据
-            latest_data = df.iloc[0].to_dict()
+            # 获取最新一期数据（安全序列化）
+            latest_data = series_to_dict(df.iloc[0])
             return latest_data
         except Exception as e:
             logger.error(f"同花顺数据源异常: {str(e)}")

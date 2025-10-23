@@ -7,7 +7,7 @@
 import pandas as pd
 from stockstats import wrap
 from typing import Any
-from .utils import format_stock_code, get_current_date
+from .utils import format_stock_code, get_current_date, series_to_dict
 from .session_cache import session_cache
 from .akshare_client import AkshareClient
 from .logging import logger
@@ -198,11 +198,14 @@ class AShareTechnical:
                 # 获取最近的有效值
                 latest_value = self._get_latest_valid_value(indicator_values)
                 
+                # 使用工具函数安全转换Series为字典（自动处理Timestamp）
+                values_dict = series_to_dict(indicator_values.dropna().tail(20))
+                
                 result = {
                     'data': {
                         'indicator': indicator,
                         'latest_value': latest_value,
-                        'values': indicator_values.dropna().tail(20).to_dict(),  # 最近20个有效值
+                        'values': values_dict,  # 最近20个有效值
                         'description': self.indicators_info.get(indicator, ''),
                         'calculation_date': get_current_date()
                     },
