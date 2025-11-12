@@ -21,3 +21,13 @@ def mcp_tools():
     """提供MCPTools实例"""
     from dataflows_mcp.tools.mcp_tools import MCPTools
     return MCPTools()
+
+
+def pytest_addoption(parser):
+    """添加自定义pytest命令行选项"""
+    parser.addoption(
+        "--mcp-url",
+        action="store",
+        default="http://localhost:8000",
+        help="MCP服务器URL（默认: http://localhost:8000）"
+    )

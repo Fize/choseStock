@@ -112,5 +112,22 @@ app_data/
 config.yaml
 pyrightconfig.json
 
+# Development directories
 .github/
-.specify
+.specify/
+
+# Universal patterns
+.DS_Store
+Thumbs.db
+*.tmp
+*.swp
+*.swo
+*~
+
+# Test artifacts
+.pytest_cache/
+*.pytest_cache/
+
+# uv lock file (should be committed, but keeping here for awareness)
+# uv.lock
+specs

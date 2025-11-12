@@ -53,4 +53,6 @@ COPY dataflows_mcp ./dataflows_mcp
 
 EXPOSE 8000
 
-CMD ["python", "-m", "dataflows_mcp.server.mcp_server", "--transport", "streamable-http", "--host", "0.0.0.0", "--port", "8000"]
+# CMD ["python", "-m", "dataflows_mcp.server.mcp_server", "--transport", "streamable-http", "--host", "0.0.0.0", "--port", "8000"]
+# CMD ["a-share-mcp", "--transport", "sse", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["python", "-m", "dataflows_mcp.server.mcp_server", "--transport", "sse", "--host", "0.0.0.0", "--port", "8000"]
