@@ -1,7 +1,7 @@
 """
 MCP服务器实现
 提供符合MCP协议的A股数据服务
-支持 stdio、sse、streamable-http 三种 transport
+使用 stdio transport（通过 supergateway 转换为 SSE/HTTP）
 """
 
 import sys
@@ -10,33 +10,20 @@ import logging
 import argparse
 from pathlib import Path
 from typing import Any, Dict, List, Optional
-from datetime import datetime, timezone
 
 from dataflows_mcp.core.logging import logger, setup_logging
 
 
-# 解析命令行参数（在导入 FastMCP 之前）
+# 解析命令行参数
 def parse_args():
     """解析命令行参数"""
     parser = argparse.ArgumentParser(description="A股数据流MCP服务器")
     parser.add_argument(
         "--transport",
         type=str,
-        choices=["stdio", "sse", "streamable-http"],
+        choices=["stdio"],
         default="stdio",
-        help="Transport类型: stdio(默认), sse, streamable-http"
-    )
-    parser.add_argument(
-        "--port",
-        type=int,
-        default=8000,
-        help="HTTP服务器端口（仅用于sse和streamable-http）"
-    )
-    parser.add_argument(
-        "--host",
-        type=str,
-        default="127.0.0.1",
-        help="HTTP服务器主机地址（仅用于sse和streamable-http）"
+        help="Transport类型: stdio（默认且唯一支持）"
     )
     parser.add_argument(
         "--debug",
@@ -52,103 +39,22 @@ if "pytest" not in sys.modules:
 else:
     # 测试环境下使用默认参数
     class MockArgs:
-        transport = "sse"
-        port = 8000
-        host = "127.0.0.1"
+        transport = "stdio"
         debug = False
     _args = MockArgs()
 
-# 导入 FastMCP（在参数解析之后）
+# 导入 FastMCP
 from mcp.server.fastmcp import FastMCP, Context
 from mcp.server.session import ServerSession
-from starlette.requests import Request
-from starlette.responses import JSONResponse, Response
 
 from dataflows_mcp import __version__
 from dataflows_mcp.tools.mcp_tools import get_mcp_tools
 
-# 创建 FastMCP 服务器实例（传入 host 和 port）
-mcp = FastMCP(
-    "a-share-dataflows",
-    host=_args.host,
-    port=_args.port
-)
+# 创建 FastMCP 服务器实例（stdio transport）
+mcp = FastMCP("a-share-dataflows")
 
 # 获取工具实例
 mcp_tools_instance = get_mcp_tools()
-
-
-# =============================================================================
-# 自定义路由 - 心跳端点
-# =============================================================================
-
-# CONSTITUTION_EXCEPTION: 简单健康检查端点，无业务逻辑，豁免完整TDD要求
-# 理由：端点仅返回5个静态/环境字段，无分支逻辑，无数据处理，失败风险极低
-# 保留测试：契约测试 + 集成测试（验证端点可访问性和响应时间）
-# 批准：待PR审查（需2名审查者）
-# 记录：docs/exceptions.md
-
-@mcp.custom_route("/", methods=["GET"])
-async def heartbeat(request: Request) -> Response:
-    """
-    心跳端点 - SSE/Streamable HTTP模式下的健康检查
-    
-    该端点用于客户端检测服务器连接状态，返回服务器健康信息。
-    仅在SSE和Streamable HTTP传输模式下生效（stdio模式无HTTP服务器）。
-    
-    Args:
-        request: Starlette Request对象
-        
-    Returns:
-        Response: JSON响应，包含以下字段：
-            - status (str): 服务健康状态，"healthy" | "unhealthy"
-            - timestamp (str): ISO 8601格式的UTC时间戳
-            - transport (str): 当前传输模式，"sse" | "streamable-http"
-            - server (str): 服务器名称，"a-share-dataflows"
-            - version (str): 服务器版本号，如"0.1.0"
-            
-    Example:
-        >>> # 使用curl测试
-        >>> curl http://localhost:8000/
-        {
-            "status": "healthy",
-            "timestamp": "2025-11-12T10:30:00.123456+00:00",
-            "transport": "sse",
-            "server": "a-share-dataflows",
-            "version": "0.1.0"
-        }
-        
-    Notes:
-        - 响应时间目标: <100ms (p95)
-        - 并发能力: >1000 req/s
-        - 无状态设计: 不依赖任何持久化数据或全局状态
-        - 日志级别: DEBUG（避免生产环境日志噪音）
-    """
-    # 生成UTC时间戳
-    timestamp = datetime.now(timezone.utc).isoformat()
-    
-    # 构建响应数据
-    response_data = {
-        "status": "healthy",
-        "timestamp": timestamp,
-        "transport": _args.transport,
-        "server": "a-share-dataflows",
-        "version": __version__
-    }
-    
-    # DEBUG级别日志（避免生产环境噪音）
-    if request.client:
-        logger.debug(f"心跳请求 - 来源: {request.client.host}")
-    else:
-        logger.debug("心跳请求 - 来源: unknown")
-    
-    # 返回JSON响应，禁用缓存
-    return JSONResponse(
-        response_data,
-        headers={
-            "Cache-Control": "no-cache, no-store, must-revalidate"
-        }
-    )
 
 
 # =============================================================================
@@ -445,10 +351,9 @@ def main():
     logger.info("A股数据流MCP服务器启动")
     logger.info("=" * 60)
     logger.info(f"Python版本: {sys.version.split()[0]}")
-    logger.info(f"Transport: {_args.transport}")
-    if _args.transport in ["sse", "streamable-http"]:
-        logger.info(f"监听地址: {_args.host}:{_args.port}")
+    logger.info(f"Transport: stdio")
     logger.info(f"日志级别: {'DEBUG' if log_level == logging.DEBUG else 'INFO'}")
+    logger.info("提示: 使用 supergateway 可将此服务转换为 HTTP/SSE 端点")
     
     # 记录环境变量配置
     log_file = os.environ.get('STOCK_LOG_FILE', str(Path.home() / '.stock.log'))
@@ -460,16 +365,9 @@ def main():
     logger.info("-" * 60)
     
     try:
-        # 根据 transport 类型启动服务器
-        if _args.transport == "stdio":
-            logger.info("使用 stdio transport，等待客户端连接...")
-            mcp.run(transport="stdio")
-        elif _args.transport == "sse":
-            logger.info(f"使用 SSE transport，服务器启动在 http://{_args.host}:{_args.port}")
-            mcp.run(transport="sse")
-        elif _args.transport == "streamable-http":
-            logger.info(f"使用 Streamable HTTP transport，服务器启动在 http://{_args.host}:{_args.port}")
-            mcp.run(transport="streamable-http")
+        # 使用 stdio transport 启动服务器
+        logger.info("使用 stdio transport，等待客户端连接...")
+        mcp.run(transport="stdio")
             
     except KeyboardInterrupt:
         logger.info("-" * 60)
