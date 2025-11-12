@@ -111,3 +111,6 @@ ENV/
 app_data/
 config.yaml
 pyrightconfig.json
+
+.github/
+.specify
